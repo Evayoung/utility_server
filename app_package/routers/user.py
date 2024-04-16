@@ -12,12 +12,12 @@ router = APIRouter(
 )
 
 
-@router.post('/', status_code=status.HTTP_201_CREATED, response_model=schemas.UserResponse, include_in_schema=False)
+@router.post('/', status_code=status.HTTP_201_CREATED, response_model=schemas.UserResponse)
 async def create_users(user: schemas.UserCreate, db: Session = Depends(get_db),
                        ):
 
     # admin_score = await utils.assess_score(current_user)
-
+    #
     # if admin_score < 2:
     #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege")
 
