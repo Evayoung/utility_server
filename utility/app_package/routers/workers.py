@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 
 from .. import utils, models, schemas, oauth2
 from ..database import get_db
-import uuid
 
 router = APIRouter(
     prefix="/workers",

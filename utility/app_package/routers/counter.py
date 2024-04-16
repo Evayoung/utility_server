@@ -1,11 +1,10 @@
 from typing import List, Optional, Union
 from fastapi import status, HTTPException, Depends, APIRouter
 from sqlalchemy import extract
-from sqlalchemy.orm import Session, Query
+from sqlalchemy.orm import Session
 
 from .. import schemas, utils, models, oauth2
 from ..database import get_db
-from .websocket import manager
 
 router = APIRouter(
     prefix="/counts",

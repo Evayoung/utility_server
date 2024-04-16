@@ -1,5 +1,3 @@
-from typing import List, Union
-
 from fastapi import status, HTTPException, Depends, APIRouter
 from sqlalchemy.orm import Session
 

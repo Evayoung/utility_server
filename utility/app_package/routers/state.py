@@ -41,7 +41,8 @@ async def get_state(
         return state
 
     if get_all:
-        state = db.query(models.States).filter(models.States.state_id.ilike(f"%{role}%")).offset(offset).limit(limit).all()
+        state = db.query(models.States).filter(
+            models.States.state_id.ilike(f"%{role}%")).offset(offset).limit(limit).all()
         if not state:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                                 detail=f'No data found!')
