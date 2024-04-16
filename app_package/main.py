@@ -33,11 +33,11 @@ models.Base.metadata.create_all(bind=engine)  # create all the database tables
 app = FastAPI(
     title="DCLM UTILITY APP",
     description=description,
-    summary="Full application descriptions can be found inside the 'about app' of the mobile and desktop application",
-    version="0.0.1",
+    summary="This server is still in development stage therefore, full description not available",
+    version="0.0.4",
     terms_of_service="http://example.com/terms/",
     contact={
-        "name": "Olorundare Micheal",
+        "name": "Impath-lab Technology",
         "email": "meshelleva@gmail.com",
     },
     license_info={
