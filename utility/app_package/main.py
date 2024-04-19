@@ -68,5 +68,4 @@ app.include_router(websocket.router)  # this route is for the websocket to manag
 def root():
     return {"message": "Deeper Christian Life Ministry"}
 
-
 """ Add include_in_schema=False to the route to disable it from showing in the docs"""

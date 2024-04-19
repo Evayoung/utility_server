@@ -14,6 +14,21 @@ router = APIRouter(
 
 
 @router.get('/', response_model=Union[schemas.InformationResponse, List[schemas.InformationResponse]])
+async def request_information(user_id: str, db: Session = Depends(get_db),
+                              current_user: str = Depends(oauth2.get_current_user)):
+    role = await utils.create_admin_access_id(current_user)
+    if not role:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No privilege for user type!")
+
+    user = db.query(models.Information).filter(models.Information.user_id == user_id,
+                                        models.User.location_id.ilike(f"%{role}%")).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'User with id: {user_id} not found!')
+
+    return user
+
+
+@router.get('/', response_model=Union[schemas.InformationResponse, List[schemas.InformationResponse]])
 async def get_information(
         id: Optional[int] = None,
         limit: Optional[int] = 100,  # Default limit set to 100
@@ -36,7 +51,7 @@ async def get_information(
     if role is None:
         raise HTTPException(status_code=403, detail="Unauthorized access")
 
-    query = db.query(models.ChurchPrograms)
+    query = db.query(models.Information)
 
     if get_all:
         information = query.filter(models.Information.location_id.ilike(f'%{role}%')).offset(offset).limit(

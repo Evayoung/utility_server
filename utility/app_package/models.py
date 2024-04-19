@@ -353,7 +353,6 @@ class TitheAndOffering(Base):
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
-
 class Information(Base):
     """ ** This model creates the table where the weekly information for each region will be saved ** """
     __tablename__ = "information"
