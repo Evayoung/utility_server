@@ -320,7 +320,6 @@ class CreateState(BaseModel):
     state_id: str
     country: str
     state: str
-    head_church: str
     city: str
     address: str
     state_hq: str
@@ -332,7 +331,6 @@ class StateResponse(BaseModel):
     state_id: str
     country: str
     state: str
-    head_church: str
     city: str
     address: str
     state_hq: str
@@ -340,7 +338,6 @@ class StateResponse(BaseModel):
 
 
 class UpdateState(BaseModel):
-    head_church: str
     city: str
     address: str
     state_hq: str
@@ -705,14 +702,14 @@ class UpdatePrograms(BaseModel):
     end_date: date
 
 
-# #################################### THE CHURCH WEEKLY INFORMATION SYSTEM ################################
+# ####################################### THE CHURCH WEEKLY INFORMATION SYSTEM ###################################
 class InformationItems(BaseModel):
-    information_id: str
     title: str
     text: str
 
 
 class InformationItemsResponse(BaseModel):
+    information_id: str
     title: str
     text: str
 
@@ -727,10 +724,12 @@ class CreateInformation(BaseModel):
     meeting: str
     date: date
     trets_topic: str
-    trets_date: str
+    trets_date: date
     sws_topic: str
     sts_study: str
-    hcf_topic: str
+    adult_hcf: str
+    youth_hcf: str
+    children_hcf: str
     sws_bible_reading: str
     mbs_bible_reading: str
     is_active: bool
@@ -745,10 +744,12 @@ class InformationResponse(BaseModel):
     meeting: str
     date: date
     trets_topic: str
-    trets_date: str
+    trets_date: date
     sws_topic: str
     sts_study: str
-    hcf_topic: str
+    adult_hcf: str
+    youth_hcf: str
+    children_hcf: str
     sws_bible_reading: str
     mbs_bible_reading: str
     is_active: bool
@@ -761,10 +762,12 @@ class UpdateInformation(BaseModel):
     meeting: str
     date: date
     trets_topic: str
-    trets_date: str
+    trets_date: date
     sws_topic: str
     sts_study: str
-    hcf_topic: str
+    adult_hcf: str
+    youth_hcf: str
+    children_hcf: str
     sws_bible_reading: str
     mbs_bible_reading: str
     is_active: bool

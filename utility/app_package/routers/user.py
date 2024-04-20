@@ -11,21 +11,18 @@ router = APIRouter(
 
 
 @router.get("/state_region_data/")
-async def get_region_state(user_id: str, db: Session = Depends(get_db),
+async def get_region_state(db: Session = Depends(get_db),
                            current_user: str = Depends(oauth2.get_current_user)):
     # Extract location_id from the current user
     location_id = current_user.location_id
 
     # Split the location_id to extract state_id and region_id
     parts = location_id.split("-")
-    if len(parts) < 3:
-        raise HTTPException(status_code=400, detail="Invalid location ID format")
 
-    state_id = parts[1]  # Assuming state_id is the second part
-    region_id = parts[2]  # Assuming region_id is the third part
+    state_id = "-".join(parts[:3])  # Assuming state_id is the second part
+    region_id = "-".join(parts[:4])  # Assuming region_id is the third part
 
     # Query the database to fetch state and region data based on state_id and region_id
-    # state = db.query(models.States).filter(models.States.state_id == state_id).first()
     state = db.query(models.States).filter(models.States.state_id == state_id).first()
     region = db.query(models.Region).filter(models.Region.region_id == region_id).first()
 
@@ -37,7 +34,6 @@ async def get_region_state(user_id: str, db: Session = Depends(get_db),
         "state_id": state.state_id,
         "country": state.country,
         "state": state.state,
-        "head_church": state.head_church,
         "city": state.city,
         "address": state.address,
         "state_hq": state.state_hq,
