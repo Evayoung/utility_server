@@ -22,7 +22,7 @@ router = APIRouter(
 
 @router.get('/', response_model=Union[schemas.InformationResponse, List[schemas.InformationResponse]])
 async def get_information(
-        id: Optional[int] = None,
+        id: Optional[str] = None,
         limit: Optional[int] = 100,
         offset: Optional[int] = 0,
         db: Session = Depends(get_db),
@@ -69,8 +69,7 @@ async def get_information(
         return information
 
     if id:
-        information = query.filter(models.Information.id == id,
-                                   models.Information.region_id.ilike(f'%{region_id}%')).first()
+        information = query.filter(models.Information.information_id == id).first()
 
         if not information:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'Attendance with id: {id} not found!')

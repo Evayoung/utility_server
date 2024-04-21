@@ -753,6 +753,7 @@ class InformationResponse(BaseModel):
     sws_bible_reading: str
     mbs_bible_reading: str
     is_active: bool
+    created_at: datetime
     items: List[InformationItemsResponse]
 
 
