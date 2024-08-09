@@ -197,7 +197,6 @@ async def update_user(user_id: str, update_data: schemas.UpdateUser, db: Session
                       current_user: str = Depends(oauth2.get_current_user),
                       user_access: None = Depends(oauth2.has_permission("update_user"))):
     role = await utils.create_admin_access_id(current_user)
-    print(role)
 
     if not role:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access!")
