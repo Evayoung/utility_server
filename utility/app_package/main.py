@@ -1,9 +1,12 @@
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 from .database import engine
 from . import models
 from .routers import (counter, auth, region, user, state, group, location, workers, register, programs, attendance,
-                      tithes, fellowship, information, websocket)
+                      tithes, fellowship, information, websocket, permissions, roles, rolescore)
 
 description = """
 This DCLM Utility server manages all the utility mobile and desktop application relating to the data management in the church
@@ -46,7 +49,13 @@ app = FastAPI(
     },
 )
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+
 app.include_router(auth.router)  # this route controls the user authentication of the application
+app.include_router(permissions.router)  # this route handles the CRUD operations for creating the permissions
+app.include_router(roles.router)  # this route handles the CRUD operations for creating the permissions
+app.include_router(rolescore.router)  # this route handles the CRUD operations for creating the role score or levels
 app.include_router(user.router)  # this route handles the CRUD operations of the users, this includes the Ushers
 app.include_router(workers.router)  # this route controls all the CRUD operations of the workers
 app.include_router(attendance.router)  # this is the route that handles the CRUD operations on the workers attendance
@@ -64,8 +73,19 @@ app.include_router(information.router)
 app.include_router(websocket.router)  # this route is for the websocket to manage realtime operations like notifications
 
 
+# Exception handler for validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logging.error(f"Validation error: {exc}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": exc.body},
+    )
+
+
 @app.get("/")
 def root():
     return {"message": "Deeper Christian Life Ministry"}
 
-""" Add include_in_schema=False to the route to disable it from showing in the docs"""
+
+""" Add include_in_schema=False to the route to disable it from showing in the docs """

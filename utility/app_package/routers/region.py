@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Union, Optional
 
 from fastapi import status, HTTPException, Depends, APIRouter
@@ -12,65 +13,61 @@ router = APIRouter(
 )
 
 
-@router.get('/', response_model=Union[schemas.RegionResponse, List[schemas.RegionResponse]])
+@router.get('/read-region/', response_model=Union[schemas.RegionResponse, List[schemas.RegionResponse]])
 async def get_regions(
         id: Optional[int] = None,
+        limit: Optional[int] = 100,  # Default limit set to 100
+        offset: Optional[int] = 0,  # Default offset set to 0
         region_id: Optional[str] = None,
         db: Session = Depends(get_db),
         current_user: str = Depends(oauth2.get_current_user),
+        # user_access: None = Depends(oauth2.has_permission("read_region")),
         region_name: Optional[str] = None,
         get_all: Optional[bool] = None,
 ):
-    role = await utils.create_admin_access_id(current_user)
-    admin_score = await utils.assess_score(current_user)
-
-    if admin_score < 4:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege")
+    role = current_user.roles[0].score.score
 
     if not role:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No privilege for user type!")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access!")
 
-    if get_all:
-        groups = db.query(models.Group.region_id.ilike(f"%{role}%")).all()
-        return groups
+    user_type = await utils.create_admin_access_id(current_user)
 
-    query = db.query(models.Region)
+    query = db.query(models.Region).filter(models.Region.region_id.ilike(f'%{user_type}%'),
+                                           models.Region.is_deleted == False)
 
     if id:
-        region = query.filter(models.Region.id == id,
-                              models.Group.region_id.ilike(f"%{role}%")).first()
-        if not region:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                                detail=f'Region with id: {id} not found!')
-        return region
+        query = query.filter(models.Region.id == id)
 
     if region_id:
-        region = query.filter(models.Region.region_id == region_id,
-                              models.Group.region_id.ilike(f"%{role}%")).first()
-        if not region:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                                detail=f'Region with id: {region_id} not found!')
-        return region
+        query = query.filter(models.Region.region_id == region_id)
 
     if region_name:
-        query = query.filter(models.Region.region_name.ilike(f'%{region_name}%'),
-                             models.Group.region_id.ilike(f"%{role}%"))
+        query = query.filter(models.Region.region_name.ilike(f'%{region_name}%'))
 
+    # Apply limit and offset to the query
+    query = query.offset(offset).limit(limit)
     region = query.all()
     if not region:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Record with ID: {region} not found!")
 
+    if get_all:
+        return region
+
+    # If a single user was requested by ID, return just that user
+    if id:
+        if len(region) == 1:
+            return region[0]
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'Region with id: {id} not found!')
+
     return region
 
 
-@router.post('/', status_code=status.HTTP_201_CREATED, response_model=schemas.RegionResponse)
+@router.post('/create-region/', status_code=status.HTTP_201_CREATED, response_model=schemas.RegionResponse)
 async def create_region(region: schemas.CreateRegions, db: Session = Depends(get_db),
+                        # user_access: None = Depends(oauth2.has_permission("create_region")),
                         current_user: str = Depends(oauth2.get_current_user)
                         ):
-    admin_score = await utils.assess_score(current_user)
 
-    if admin_score < 4:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege")
     try:
         new_region = models.Region(**region.dict())
         db.add(new_region)
@@ -84,50 +81,71 @@ async def create_region(region: schemas.CreateRegions, db: Session = Depends(get
                             detail="Internal Error! Region could not be created.")
 
 
-@router.put("/", response_model=schemas.RegionResponse)
+@router.patch("/update-region/", response_model=schemas.RegionResponse)
 async def update_regions(region_id: str, region_: schemas.UpdateRegions, db: Session = Depends(get_db),
-                         current_user: str = Depends(oauth2.get_current_user)):
-    role = await utils.create_admin_access_id(current_user)
-    admin_score = await utils.assess_score(current_user)
+                         current_user: str = Depends(oauth2.get_current_user),
+                         user_access: None = Depends(oauth2.has_permission("update_region"))
+                         ):
 
-    if admin_score < 5:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege")
+    role = await utils.create_admin_access_id(current_user)
 
     if not role:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No privilege for user type!")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access!")
 
     region_query = db.query(models.Region).filter(models.Region.region_id == region_id,
-                                                  models.Group.region_id.ilike(f"%{role}%"))
+                                                  models.Region.is_deleted == False,
+                                                  models.Region.region_id.ilike(f"%{role}%"))
 
     region = region_query.first()
 
     if region is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Region with id: {region_id} does not exist")
 
-    region_query.update(region_.dict())
+    if region.is_deleted:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Record not found!")
+
+    # Update the record with new data, and set the operation and last_modify fields
+    updated_data = region_.dict(exclude_unset=True)
+    updated_data["last_modify"] = datetime.utcnow()
+    updated_data["operation"] = "update"
+
+    region_query.update(updated_data)
     db.commit()
+    db.refresh(region)
 
-    return region_query.first()
+    return region
 
 
-@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/delete-region/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_region(region_id: str, db: Session = Depends(get_db),
-                        current_user: str = Depends(oauth2.get_current_user)):
-    role = await utils.create_admin_access_id(current_user)
-    admin_score = await utils.assess_score(current_user)
+                        current_user: str = Depends(oauth2.get_current_user),
+                        user_access: None = Depends(oauth2.has_permission("read_region"))
+                        ):
 
-    if admin_score < 5:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege")
+    role = await utils.create_admin_access_id(current_user)
 
     if not role:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No privilege for user type!")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access!")
 
     region = db.query(models.Region).filter(models.Region.region_id == region_id,
-                                            models.Group.region_id.ilike(f"%{role}%"))
+                                            models.Region.is_deleted == False,
+                                            models.Region.region_id.ilike(f"%{role}%")).first()
 
-    if region.first() is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User with id: {region_id} does not exist")
+    if region is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Region with id: {region_id} does not exist")
 
-    region.delete(synchronize_session=False)
+    update_data = schemas.UpdateRegions(
+        is_deleted=True,
+        last_modify=datetime.now(),
+        operation="delete"
+    )
+
+    # Update the user with the new data
+    for field, value in update_data.dict(exclude_unset=True).items():
+        setattr(region, field, value)
     db.commit()
-    return {"response": "Data deleted successfully!"}
+
+    return {"status": "successful!",
+            "message": f"Region record with ID: {region_id} deleted successfully!"
+            }

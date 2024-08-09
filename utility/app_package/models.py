@@ -1,20 +1,81 @@
-from sqlalchemy import Column, Integer, String, TIMESTAMP, Date, func, ForeignKey, LargeBinary, Boolean, Float
+from sqlalchemy import Column, Integer, String, TIMESTAMP, Date, func, ForeignKey, LargeBinary, Boolean, Float, Table
 from sqlalchemy.orm import relationship
 
 from .database import Base
 
+# Association tables for many-to-many relationships
+role_permissions = Table(
+    'role_permissions', Base.metadata,
+    Column('role_id', Integer, ForeignKey('roles.id'), primary_key=True),
+    Column('permission_id', Integer, ForeignKey('permissions.id'), primary_key=True)
+)
+
+
+# this defines the user to role relationships
+user_roles = Table(
+    'user_roles', Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
+    Column('role_id', Integer, ForeignKey('roles.id'), primary_key=True)
+)
+
+
+class Permission(Base):
+    """ *** THE PERMISSION DATABASE SCHEMAS *** """
+    __tablename__ = "permissions"
+
+    id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
+    permission = Column(String, nullable=False, index=True, unique=True)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)
+    is_deleted = Column(Boolean, nullable=False, index=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    roles = relationship("Role", secondary=role_permissions, back_populates="permissions")
+
+
+class Role(Base):
+    """ *** THE ROLES DATABASE SCHEMAS *** """
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
+    role_name = Column(String, nullable=False, unique=True, index=True)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)
+    is_deleted = Column(Boolean, nullable=False, index=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    score_id = Column(Integer, ForeignKey("role_scores.id"), nullable=False, index=True)
+
+    permissions = relationship("Permission", secondary=role_permissions, back_populates="roles")
+    users = relationship("User", secondary=user_roles, back_populates="roles")
+    score = relationship("RoleScore", back_populates="roles")
+
+
+class RoleScore(Base):
+    """ *** THE ROLE SCORE DATABASE SCHEMAS *** """
+    __tablename__ = "role_scores"
+
+    id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
+    score = Column(Integer, nullable=False, index=True, unique=True)
+    score_name = Column(String, nullable=False, index=True, unique=True)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)
+    is_deleted = Column(Boolean, nullable=False, index=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    roles = relationship("Role", back_populates="score")
+
 
 class Workers(Base):
-    """ *** THIS CREATES ALL THE WORKER DATABASE SCHEMAS (THIS IS SIMILAR TO THE USER DATABASE, BUT THEY ARE DIFFERENT
-    TABLES. THIS HOLDS THE DETAILS OF ALL THE WORKERS IN THE STATE) *** """
-
-    __tablename__: str = "workers"
+    """ *** THE WORKERS DATABASE SCHEMAS *** """
+    __tablename__ = "workers"
 
     id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
     user_id = Column(String, nullable=False, unique=True, index=True)
     location_id = Column(String, nullable=False, index=True)
     location = Column(String, nullable=False, index=True)
-    church_type = Column(String, nullable=False, index=True)  # Campus, Adult, Youth (DLCF, DLBC, DLSO)
+    church_type = Column(String, nullable=False, index=True)
     state_ = Column(String, nullable=False)
     region = Column(String, nullable=False, index=True)
     group = Column(String, nullable=False, index=True)
@@ -27,6 +88,9 @@ class Workers(Base):
     marital_status = Column(String, nullable=True)
     status = Column(String, nullable=True, index=True)
     unit = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     users = relationship('User', back_populates='workers')
@@ -34,10 +98,9 @@ class Workers(Base):
 
 class User(Base):
     """ *** THE USER DATABASE SCHEMAS *** """
+    __tablename__ = "users"
 
-    __tablename__: str = "users"
-
-    id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)  # this is the primary key
+    id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
     location_id = Column(String, nullable=False, index=True)
     user_id = Column(String, ForeignKey("workers.user_id"), nullable=False, index=True)
     name = Column(String, nullable=False)
@@ -45,10 +108,13 @@ class User(Base):
     email = Column(String, nullable=False, unique=True)
     password = Column(String, nullable=False)
     is_active = Column(Boolean, nullable=True, index=True)
-    role = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     workers = relationship('Workers', back_populates='users')
+    roles = relationship("Role", secondary=user_roles, back_populates="users")
 
 
 class Counter(Base):
@@ -72,6 +138,9 @@ class Counter(Base):
     total = Column(Integer, nullable=False)
     author = Column(String, nullable=True)
     extra_note = Column(String, nullable=True, server_default="Default")
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -100,6 +169,9 @@ class Record(Base):
     salvation_type = Column(String, nullable=True)
     invited_by = Column(String, nullable=True)
     author = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -124,6 +196,9 @@ class Attendance(Base):
     church_id = Column(String, nullable=False, index=True)
     local_church = Column(String, nullable=False)
     status = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -139,6 +214,9 @@ class States(Base):
     address = Column(String, nullable=False)
     state_hq = Column(String, nullable=False)
     state_pastor = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -152,6 +230,9 @@ class Region(Base):
     region_name = Column(String, nullable=False, index=True)
     region_head = Column(String, nullable=False)
     regional_pastor = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     information = relationship("Information", back_populates="region")
@@ -167,6 +248,9 @@ class Group(Base):
     group_name = Column(String, nullable=False, index=True)
     group_head = Column(String, nullable=False)
     group_pastor = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -176,18 +260,20 @@ class Location(Base):
     __tablename__: str = "location"
 
     id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
-    location_id = Column(String, nullable=False, unique=True)  # Custom string primary key
+    location_id = Column(String, nullable=False, unique=True)  # Custom string primary key system
     location_name = Column(String, nullable=False, index=True)
     church_type = Column(String, nullable=False, index=True)  # Campus, Adult, Youth (DLCF, DLBC, DLSO)
     address = Column(String, nullable=False)
     associate_cord = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     fellowships = relationship("Fellowship", back_populates="location")
     fellowship_members = relationship("FellowshipMembers", back_populates="location")
     fellowship_attendance = relationship("FellowshipAttendance", back_populates="location")
     attendance_summaries = relationship("AttendanceSum", back_populates="location")
-    fellowship_plans = relationship("FellowshipPlan", back_populates="location")
     testimonies = relationship("Testimony", back_populates="location")
     prayer_requests = relationship("PrayerRequest", back_populates="location")
 
@@ -205,10 +291,12 @@ class Fellowship(Base):
     church_type = Column(String, nullable=False, index=True)  # Campus, Adult, Youth (DLCF, DLBC, DLSO)
     leader_in_charge = Column(String, nullable=False)
     leader_contact = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     location = relationship("Location", back_populates="fellowships")
-    fellowship_plans = relationship("FellowshipPlan", back_populates="fellowships")
     fellowship_members = relationship("FellowshipMembers", back_populates="fellowships")
     fellowship_attendance = relationship("FellowshipAttendance", back_populates="fellowships")
     attendance_summaries = relationship("AttendanceSum", back_populates="fellowships")
@@ -232,6 +320,9 @@ class FellowshipMembers(Base):
     address = Column(String, nullable=False)
     occupation = Column(String, nullable=False)
     local_church = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     fellowships = relationship("Fellowship", back_populates="fellowship_members")
@@ -250,6 +341,9 @@ class FellowshipAttendance(Base):
     phone = Column(String, nullable=False)
     address = Column(String, nullable=False)
     member_type = Column(String, nullable=False, index=True)  # first timer, new convert
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     fellowships = relationship("Fellowship", back_populates="fellowship_attendance")
@@ -268,27 +362,13 @@ class AttendanceSum(Base):
     total_count = Column(Integer, nullable=False)
     new_comers = Column(Integer, nullable=False)
     new_converts = Column(Integer, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     location = relationship("Location", back_populates="attendance_summaries")
     fellowships = relationship("Fellowship", back_populates="attendance_summaries")
-
-
-class FellowshipPlan(Base):
-    __tablename__ = 'fellowship_plans'
-
-    id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
-    fellowship_id = Column(String, ForeignKey('fellowships.fellowship_id'), nullable=False)
-    location_id = Column(String, ForeignKey('location.location_id'), nullable=False)
-    fellowship_name = Column(String, nullable=False)
-    date = Column(Date, nullable=False, index=True)
-    fellowship_plan = Column(String, nullable=False)
-    plan_type = Column(String, nullable=False)
-    expected_outcome = Column(String, nullable=False)
-    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
-
-    fellowships = relationship("Fellowship", back_populates="fellowship_plans")
-    location = relationship("Location", back_populates="fellowship_plans")
 
 
 class Testimony(Base):
@@ -302,6 +382,9 @@ class Testimony(Base):
     testimony_type = Column(String, nullable=False)
     testimony = Column(String, nullable=False)
     testifier = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     fellowships = relationship("Fellowship", back_populates="testimonies")
@@ -318,6 +401,9 @@ class PrayerRequest(Base):
     date = Column(Date, nullable=False, index=True)
     prayer_request = Column(String, nullable=False)
     requester = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     fellowships = relationship("Fellowship", back_populates="prayer_requests")
@@ -338,6 +424,9 @@ class ChurchPrograms(Base):
     program_title = Column(String, nullable=False)
     start_date = Column(Date, nullable=False, index=True)
     end_date = Column(Date, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -349,6 +438,9 @@ class TitheAndOffering(Base):
     church_type = Column(String, nullable=False, index=True)  # Campus, Adult, Youth (DLCF, DLBC, DLSO)
     date = Column(Date, nullable=False, index=True)
     amount = Column(Float, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -371,6 +463,9 @@ class Information(Base):
     sws_bible_reading = Column(String, nullable=True)
     mbs_bible_reading = Column(String, nullable=True)
     is_active = Column(Boolean, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     region = relationship("Region", back_populates="information")
@@ -384,3 +479,7 @@ class InformationItems(Base):
     information_id = Column(String, ForeignKey('information.information_id'), nullable=False)
     title = Column(String, nullable=False)
     text = Column(String, nullable=False)
+    last_modify = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    operation = Column(String, nullable=False, index=True)  # Delete, Update and create
+    is_deleted = Column(Boolean, nullable=False, index=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())

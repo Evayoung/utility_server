@@ -1,127 +1,161 @@
-# from fastapi import WebSocket, WebSocketDisconnect, APIRouter, Depends
-# from typing import List, Dict
-#
-# from .. import oauth2, utils
-#
-# router = APIRouter()
-#
-#
-# class Location:
-#     def __init__(self, country: str, state: str, region: str, group: str, location: str):
-#         self.country = country
-#         self.state = state
-#         self.region = region
-#         self.group = group
-#         self.location = location
-#
-#
-# class Notification:
-#     def __init__(self, data_id: str, message: str, location: Location):
-#         self.data_id = data_id
-#         self.message = message
-#         self.location = location
-#
-#
-# class ConnectionManager:
-#     def __init__(self):
-#         self.active_connections: List[WebSocket] = []
-#         self.user_locations: Dict[str, Location] = {}  # Maps user_id to their Location object
-#
-#     async def connect(self, websocket: WebSocket, current_user: dict, location_data: str):
-#         await websocket.accept()
-#         self.active_connections.append(websocket)
-#         # Parse location data and store user location
-#         location_parts = location_data.split("-")
-#         if len(location_parts) == 5:
-#             self.user_locations[current_user["id"]] = Location(*location_parts)
-#         else:
-#             print(f"Invalid location data format for user {current_user['id']}")
-#
-#     def disconnect(self, websocket: WebSocket):
-#         user_id = self.get_user_id(websocket)
-#         if user_id:
-#             del self.user_locations[user_id]
-#         self.active_connections.remove(websocket)
-#
-#     async def send_personal_message(self, message: str, websocket: WebSocket):
-#         await websocket.send_text(message)
-#
-#     async def broadcast_notification(self, notification: Notification):
-#         # Filter connections based on user location hierarchy
-#         for connection in self.active_connections:
-#             user_id = self.get_user_id(connection)
-#             if user_id and self.has_access(notification.location, self.user_locations.get(user_id)):
-#                 notification_message = f"Data notification (ID: {notification.data_id}): {notification.message}"
-#                 await connection.send_text(notification_message)
-#
-#     def get_user_id(self, websocket: WebSocket) -> str:
-#         return getattr(websocket, "user_id", None)
-#
-#     def has_access(self, target_location: Location, user_location: Location):
-#         if not user_location:
-#             return False
-#         return (
-#                 target_location.country == user_location.country
-#                 and target_location.state == user_location.state
-#                 and target_location.region == user_location.region
-#                 and target_location.group == user_location.group
-#                 and target_location.location == user_location.location
-#         )
-#
-#
-# manager = ConnectionManager()
-#
-#
-# @router.websocket("/ws")
-# async def websocket_endpoint(websocket: WebSocket, current_user: str = Depends(oauth2.get_current_user)):
-#     user_id = current_user.id
-#     location_data = websocket.query_params.get("location")  # Get location data from query params
-#     await manager.connect(websocket, user_id, location_data)
-#     try:
-#         while True:
-#             data = await websocket.receive_text()
-#             # Process data with its id (implement your data handling logic here)
-#             data_id = "123"  # Placeholder data ID
-#             location = manager.user_locations.get(user_id)
-#             if location:
-#                 # Prepare notification object
-#                 notification = Notification(data_id, data, location)
-#                 await manager.broadcast_notification(notification)
-#     except WebSocketDisconnect:
-#         manager.disconnect(websocket)
-
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter
-from typing import List
+from typing import List, Dict, Tuple
+from fastapi import WebSocket, WebSocketDisconnect, WebSocketException, APIRouter, Depends, HTTPException, FastAPI
+from sqlalchemy.orm import Session
+import json
+from .. import oauth2, database
 
 router = APIRouter()
 
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections = []
+        self.active_connections: List[WebSocket] = []
+        self.user_ids: Dict[WebSocket, Tuple[str, str]] = {}
+        self.groups: Dict[str, List[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, user_id: str, location_id: str):
         await websocket.accept()
         self.active_connections.append(websocket)
+        self.user_ids[websocket] = (user_id, location_id)
+        await self.broadcast_user_list()
+        await self.broadcast_user_count()
 
     async def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            del self.user_ids[websocket]
+            await self.broadcast_user_list()
+            await self.broadcast_user_count()
 
-    async def send_message(self, message: str, websocket: WebSocket):
+    async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
+
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            await connection.send_text(message)
+
+    async def send_user_list(self, websocket: WebSocket):
+        users = [f"{user_id}@{location_id}" for user_id, location_id in self.user_ids.values()]
+        message = json.dumps({
+            "type": "user_list",
+            "users": users
+        })
+        await self.send_personal_message(message, websocket)
+
+    async def broadcast_user_list(self):
+        users = [f"{user_id}@{location_id}" for user_id, location_id in self.user_ids.values()]
+        message = json.dumps({
+            "type": "user_list",
+            "users": users
+        })
+        await self.broadcast(message)
+
+    async def broadcast_user_count(self):
+        user_count = len(self.user_ids)
+        message = json.dumps({
+            "type": "user_count",
+            "count": user_count
+        })
+        await self.broadcast(message)
+
+    async def add_to_group(self, group_name: str, websocket: WebSocket):
+        if group_name not in self.groups:
+            self.groups[group_name] = []
+        self.groups[group_name].append(websocket)
+
+    async def remove_from_group(self, group_name: str, websocket: WebSocket):
+        if group_name in self.groups:
+            self.groups[group_name].remove(websocket)
+            if not self.groups[group_name]:
+                del self.groups[group_name]
+
+    async def broadcast_to_group(self, group_name: str, message: str):
+        if group_name in self.groups:
+            for connection in self.groups[group_name]:
+                await connection.send_text(message)
 
 
 manager = ConnectionManager()
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(database.get_db)):
+    token = websocket.headers.get("Authorization")
+    if token is None or not token.startswith("Bearer "):
+        await websocket.close(code=1008)
+        return
+
+    token = token.split(" ")[1]
+    try:
+        current_user = oauth2.get_current_user(token, db)
+        user_id = current_user.user_id
+        location_id = current_user.location_id
+        await manager.connect(websocket, user_id, location_id)
+    except HTTPException as e:
+        await websocket.close(code=1008)
+        return
+
     try:
         while True:
             data = await websocket.receive_text()
-            # Process data if needed (e.g., extract notification details)
-            await manager.send_message(data, websocket)  # Send received data back to the client
+            if data.startswith("request_user_list"):
+                await manager.send_user_list(websocket)
+            elif data.startswith("pm:"):
+                _, recipient_user_id, message = data.split(":", 2)
+                recipient_ws = None
+                for ws, (uid, loc_id) in manager.user_ids.items():
+                    if uid == recipient_user_id:
+                        recipient_ws = ws
+                        break
+                if recipient_ws:
+                    await manager.send_personal_message(
+                        json.dumps({
+                            "type": "personal_message",
+                            "sender": user_id,
+                            "message": message
+                        }), recipient_ws)
+                else:
+                    await manager.send_personal_message(
+                        json.dumps({
+                            "type": "error",
+                            "message": f"User {recipient_user_id} not found"
+                        }), websocket)
+            elif data.startswith("group:"):
+                _, group_name, message = data.split(":", 2)
+                await manager.broadcast_to_group(group_name, json.dumps({
+                    "type": "group_message",
+                    "group": group_name,
+                    "sender": user_id,
+                    "message": message
+                }))
+            elif data.startswith("join_group:"):
+                _, group_name = data.split(":", 1)
+                await manager.add_to_group(group_name, websocket)
+                await manager.send_personal_message(
+                    json.dumps({
+                        "type": "info",
+                        "message": f"Joined group {group_name}"
+                    }), websocket)
+            elif data.startswith("leave_group:"):
+                _, group_name = data.split(":", 1)
+                await manager.remove_from_group(group_name, websocket)
+                await manager.send_personal_message(
+                    json.dumps({
+                        "type": "info",
+                        "message": f"Left group {group_name}"
+                    }), websocket)
+            else:
+                await manager.broadcast(json.dumps({
+                    "type": "broadcast",
+                    "sender": user_id,
+                    "message": data
+                }))
     except WebSocketDisconnect:
+        await manager.disconnect(websocket)
+        print(f"Client {user_id} disconnected")
+    except WebSocketException as e:
+        print(f"Error occurred with client {user_id}: {e}")
+        await manager.disconnect(websocket)
+    except Exception as e:
+        print(f"Unexpected error: {e}")
         await manager.disconnect(websocket)

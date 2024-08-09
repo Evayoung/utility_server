@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Union, Optional
 
 from fastapi import status, HTTPException, Depends, APIRouter
@@ -12,32 +13,31 @@ router = APIRouter(
 )
 
 
-@router.get('/', response_model=Union[schemas.GroupsResponse, List[schemas.GroupsResponse]])
+@router.get('/read-group/', response_model=Union[schemas.GroupsResponse, List[schemas.GroupsResponse]])
 async def get_groups(
         id: Optional[int] = None,
         group_id: Optional[str] = None,
         db: Session = Depends(get_db),
         current_user: str = Depends(oauth2.get_current_user),
+        user_access: None = Depends(oauth2.has_permission("read_group")),
         group_name: Optional[str] = None,
         get_all: Optional[bool] = None,
 ):
     role = await utils.create_admin_access_id(current_user)
-    admin_score = await utils.assess_score(current_user)
-
-    if admin_score < 4:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege")
 
     if not role:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No privilege for user type!")
 
     if get_all:
-        groups = db.query(models.Group).filter(models.Group.group_id.ilike(f"%{role}%")).all()
+        groups = db.query(models.Group).filter(models.Group.group_id.ilike(f"%{role}%"),
+                                               models.Group.is_deleted == False).all()
         return groups
 
     query = db.query(models.Group)
 
     if id:
         group = query.filter(models.Group.id == id,
+                             models.Group.is_deleted == False,
                              models.Group.group_id.ilike(f"%{role}%")).first()
         if not group:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
@@ -46,6 +46,7 @@ async def get_groups(
 
     if group_id:
         group = query.filter(models.Group.group_id == group_id,
+                             models.Group.is_deleted == False,
                              models.Group.group_id.ilike(f"%{role}%")).first()
         if not group:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
@@ -54,6 +55,7 @@ async def get_groups(
 
     if group_name:
         query = query.filter(models.Group.group_name.ilike(f'%{group_name}%'),
+                             models.Group.is_deleted == False,
                              models.Group.group_id.ilike(f"%{role}%"))
 
     groups = query.all()
@@ -63,15 +65,11 @@ async def get_groups(
     return groups
 
 
-@router.post('/', status_code=status.HTTP_201_CREATED, response_model=schemas.GroupsResponse)
+@router.post('/create-group/', status_code=status.HTTP_201_CREATED, response_model=schemas.GroupsResponse)
 async def create_group(group: schemas.CreateGroups, db: Session = Depends(get_db),
+                       user_access: None = Depends(oauth2.has_permission("create_group")),
                        current_user: str = Depends(oauth2.get_current_user)
                        ):
-
-    admin_score = await utils.assess_score(current_user)
-
-    if admin_score < 3:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege")
     try:
         new_group = models.Group(**group.dict())
         db.add(new_group)
@@ -85,14 +83,12 @@ async def create_group(group: schemas.CreateGroups, db: Session = Depends(get_db
                             detail="Internal Error! Group could not be created.")
 
 
-@router.put("/", response_model=schemas.GroupsResponse)
+@router.patch("/update-group/", response_model=schemas.GroupsResponse)
 async def update_groups(group_id: str, groups: schemas.UpdateGroups, db: Session = Depends(get_db),
-                        current_user: str = Depends(oauth2.get_current_user)):
+                        current_user: str = Depends(oauth2.get_current_user),
+                        user_access: None = Depends(oauth2.has_permission("update_group"))
+                        ):
     role = await utils.create_admin_access_id(current_user)
-    admin_score = await utils.assess_score(current_user)
-
-    if admin_score < 3:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege")
 
     if not role:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No privilege for user type!")
@@ -105,33 +101,50 @@ async def update_groups(group_id: str, groups: schemas.UpdateGroups, db: Session
     if group is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Group with id: {group_id} does not exist")
 
-    group_query.update(groups.dict())
+    if group.is_deleted:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Record not found!")
+
+    # Update the record with new data, and set the operation and last_modify fields
+    updated_data = groups.dict(exclude_unset=True)
+    updated_data["last_modify"] = datetime.utcnow()
+    updated_data["operation"] = "update"
+
+    group_query.update(updated_data)
     db.commit()
+    db.refresh(group)
 
     return group_query.first()
 
 
-@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/delete-group/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_group(group_id: str, db: Session = Depends(get_db),
-                       current_user: str = Depends(oauth2.get_current_user)):
-
+                       current_user: str = Depends(oauth2.get_current_user),
+                       user_access: None = Depends(oauth2.has_permission("delete_group"))
+                       ):
     role = await utils.create_admin_access_id(current_user)
-    admin_score = await utils.assess_score(current_user)
-
-    if admin_score < 5:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege!")
 
     if not role:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No privilege for user type!")
 
     group = db.query(models.Group).filter(models.Group.group_id == group_id,
-                                          models.Group.goup_id.ilike(f"%{role}%"))
+                                          models.Group.is_deleted == False,
+                                          models.Group.goup_id.ilike(f"%{role}%")).first()
 
-    if group.first() is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User with id: {group_id} does not exist")
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Group with id: {group_id} does not exist")
 
-    group.delete(synchronize_session=False)
+    update_data = schemas.UpdateGroups(
+        is_deleted=True,
+        last_modify=datetime.now(),
+        operation="delete"
+    )
+
+    # Update the user with the new data
+    for field, value in update_data.dict(exclude_unset=True).items():
+        setattr(group, field, value)
     db.commit()
+
     return {"status": "successful!",
             "message": f"User with ID: {group_id} deleted successfully!"
             }

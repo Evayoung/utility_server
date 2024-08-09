@@ -20,7 +20,7 @@ router = APIRouter(
 )
 
 
-@router.get('/', response_model=Union[schemas.InformationResponse, List[schemas.InformationResponse]])
+@router.get('/read-information/', response_model=Union[schemas.InformationResponse, List[schemas.InformationResponse]])
 async def get_information(
         id: Optional[str] = None,
         limit: Optional[int] = 100,
@@ -38,21 +38,25 @@ async def get_information(
         end_month: Optional[int] = None,
         start_year: Optional[int] = None,
         end_year: Optional[int] = None
-):
-    role = await utils.create_admin_access_id(current_user)
+        ):
 
-    if role is None:
-        raise HTTPException(status_code=403, detail="Unauthorized access")
+    # role = await utils.create_admin_access_id(current_user)
 
     _id = current_user.location_id
     parts = _id.split("-")
     region_id = "-".join(parts[:4])
 
+    # if role is None:
+    #     raise HTTPException(status_code=403, detail="Unauthorized access")
+
+    # query = db.query(models.Information).filter(models.Information.location_id.ilike(f'%{role}%'),
+    #                                             models.Information.is_deleted == False)
+
     if get_info:
         # Query the database to get the last 100 fellowship records for the specified region_id
         data = db.query(models.Information).filter(
             models.Information.region_id.ilike(f"%{region_id}%")).order_by(
-                models.Information.created_at.desc()).offset(offset).limit(limit).all()
+            models.Information.created_at.desc())
 
         if not data:
             raise HTTPException(status_code=404, detail="No records found for this region")
@@ -61,7 +65,8 @@ async def get_information(
 
     query = db.query(models.Information)
     if get_all:
-        information = query.filter(models.Information.region_id.ilike(f'%{region_id}%')).offset(offset).limit(limit).all()
+        information = query.filter(models.Information.region_id.ilike(f'%{region_id}%')).offset(offset).limit(
+            limit).all()
 
         if not information:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'No data found!')
@@ -69,45 +74,32 @@ async def get_information(
         return information
 
     if id:
-        information = query.filter(models.Information.information_id == id).first()
-
-        if not information:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'Attendance with id: {id} not found!')
-
-        return information
+        query = query.filter(models.Information.information_id == id)
 
     if program_title:
-        query = query.filter(models.Information.program_title == program_title,
-                             models.Information.region_id.ilike(f'%{region_id}%'))
+        query = query.filter(models.Information.program_title == program_title)
 
     if program_type:
-        query = query.filter(models.Information.program_type == program_type,
-                             models.Information.region_id.ilike(f'%{region_id}%'))
+        query = query.filter(models.Information.program_type == program_type)
 
     if level:
-        query = query.filter(models.Information.level == level,
-                             models.Information.region_idd.ilike(f'%{region_id}%'))
+        query = query.filter(models.Information.level == level)
 
     if location_id:
-        query = query.filter(models.Information.location_id == location_id,
-                             models.Information.region_id.ilike(f'%{region_id}%'))
+        query = query.filter(models.Information.location_id == location_id)
 
     if date:
-        query = query.filter(models.Information.date == date,
-                             models.Information.region_id.ilike(f'%{region_id}%'))
+        query = query.filter(models.Information.date == date)
 
     if start_month and end_month:
         query = query.filter(
             extract('month', models.Information.date) >= start_month,
-            extract('month', models.Information.date) <= end_month,
-            models.Information.region_id.ilike(f'%{region_id}%')
-        )
+            extract('month', models.Information.date) <= end_month)
+
     if start_year and end_year:
         query = query.filter(
             extract('year', models.Information.date) >= start_year,
-            extract('year', models.Information.date) <= end_year,
-            models.Information.region_id.ilike(f'%{region_id}%')
-        )
+            extract('year', models.Information.date) <= end_year)
 
     # Apply limit and offset to the query
     query = query.offset(offset).limit(limit)
@@ -119,7 +111,7 @@ async def get_information(
     return information
 
 
-@router.post('/', status_code=status.HTTP_201_CREATED, response_model=schemas.InformationResponse)
+@router.post('/create-information/', status_code=status.HTTP_201_CREATED, response_model=schemas.InformationResponse)
 async def create_information(information: schemas.CreateInformation, db: Session = Depends(get_db),
                              current_user: str = Depends(oauth2.get_current_user)):
     try:
@@ -148,18 +140,16 @@ async def create_information(information: schemas.CreateInformation, db: Session
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.put("/", response_model=schemas.InformationResponse)
+@router.patch("/update-information/", response_model=schemas.InformationResponse)
 async def update_information(information_id: str, setup_: schemas.UpdateInformation, db: Session = Depends(get_db),
-                             current_user: str = Depends(oauth2.get_current_user)):
-    admin_score = await utils.assess_score(current_user)
+                             current_user: str = Depends(oauth2.get_current_user),
+                             user_access: None = Depends(oauth2.has_permission("update_information"))
+                             ):
 
     role = await utils.create_admin_access_id(current_user)
 
     if not role:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access!")
-
-    if admin_score < 2:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege")
 
     information_query = db.query(models.Information).filter(models.Information.id == information_id,
                                                             models.Information.location_id.ilike(f'%{role}%'))
@@ -168,34 +158,50 @@ async def update_information(information_id: str, setup_: schemas.UpdateInformat
 
     if information is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail=f"User with id: {information_id} does not exist")
+                            detail=f"Information with id: {information_id} does not exist")
 
-    information_query.update(setup_.dict())
+    if information.is_deleted:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Record not found!")
+
+    # Update the record with new data, and set the operation and last_modify fields
+    updated_data = setup_.dict(exclude_unset=True)
+    updated_data["last_modify"] = datetime.utcnow()
+    updated_data["operation"] = "update"
+
+    information_query.update(updated_data)
     db.commit()
+    db.refresh(information)
 
-    return information_query.first()
+    return information_query
 
 
-@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/delete-information/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_information(information_id: str, db: Session = Depends(get_db),
                              current_user: str = Depends(oauth2.get_current_user)):
-    admin_score = await utils.assess_score(current_user)
 
     role = await utils.create_admin_access_id(current_user)
 
     if not role:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access!")
 
-    if admin_score < 2:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough privilege")
     information = db.query(models.Information).filter(models.Information.id == information_id,
-                                                      models.Information.location_id.ilike(f'%{role}%'))
+                                                      models.Information.is_deleted == False,
+                                                      models.Information.location_id.ilike(f'%{role}%')).first()
 
-    if information.first() is None:
+    if information is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail=f"User with id: {information_id} does not exist")
 
-    information.delete(synchronize_session=False)
+    update_data = schemas.UpdateInformation(
+        is_deleted=True,
+        last_modify=datetime.now(),
+        operation="delete"
+    )
+
+    # Update the user with the new data
+    for field, value in update_data.dict(exclude_unset=True).items():
+        setattr(information, field, value)
+
     db.commit()
     return {"response": "Data deleted successfully!"}
 

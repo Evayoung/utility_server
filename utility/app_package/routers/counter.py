@@ -1,3 +1,5 @@
+import json
+from datetime import datetime
 from typing import List, Optional, Union
 from fastapi import status, HTTPException, Depends, APIRouter
 from sqlalchemy import extract
@@ -5,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import schemas, utils, models, oauth2
 from ..database import get_db
+from .websocket import manager
 
 router = APIRouter(
     prefix="/counts",
@@ -12,13 +15,14 @@ router = APIRouter(
 )
 
 
-@router.get('/', response_model=Union[schemas.CountResponse, List[schemas.CountResponse]])
+@router.get('/read-counts/', response_model=Union[schemas.CountResponse, List[schemas.CountResponse]])
 async def get_counts(
         _id: Optional[int] = None,
         limit: Optional[int] = 100,  # Default limit set to 100
-        offset: Optional[int] = 0,    # Default offset set to 0
+        offset: Optional[int] = 0,  # Default offset set to 0
         db: Session = Depends(get_db),
         current_user: str = Depends(oauth2.get_current_user),
+        user_access: None = Depends(oauth2.has_permission("read_count")),
         program_domain: Optional[str] = None,
         program_type: Optional[str] = None,
         location_id: Optional[str] = None,
@@ -31,52 +35,38 @@ async def get_counts(
         # Add other query parameters as needed
 ):
     user_type = await utils.create_admin_access_id(current_user)
-    query = db.query(models.Counter)
 
     if user_type is None:
         raise HTTPException(status_code=403, detail="Unauthorized access")
 
-    if get_all:
-        counts = query.filter(models.Counter.location_id.ilike(f'%{user_type}%')).all()
-        return counts
-    # user_type = create_admin_access_id(current_user)
+    query = db.query(models.Counter).filter(models.Counter.location_id.ilike(f'%{user_type}%'),
+                                            models.Counter.is_deleted == False)
 
     if _id:
-        count = query.filter(models.Counter.id == _id, models.Counter.location_id.ilike(f'%{user_type}%')).first()
-        if not count:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'Count with id: {_id} not found!')
-
-        return count
+        query = query.filter(models.Counter.id == _id)
 
     if program_domain:
-        query = query.filter(models.Counter.program_domain == program_domain,
-                             models.Counter.location_id.ilike(f'%{user_type}%'))
+        query = query.filter(models.Counter.program_domain == program_domain)
 
     if program_type:
-        query = query.filter(models.Counter.program_type == program_type,
-                             models.Counter.location_id.ilike(f'%{user_type}%'))
+        query = query.filter(models.Counter.program_type == program_type)
 
     if location_id:
-        query = query.filter(models.Counter.location_id == location_id,
-                             models.Counter.location_id.ilike(f'%{user_type}%'))
+        query = query.filter(models.Counter.location_id == location_id)
 
     if date:
-        query = query.filter(models.Counter.date == date,
-                             models.Counter.location_id.ilike(f'%{user_type}%'))
+        query = query.filter(models.Counter.date == date)
 
     if start_month and end_month:
         query = query.filter(
             extract('month', models.Counter.date) >= start_month,
-            extract('month', models.Counter.date) <= end_month,
-            models.Counter.location_id.ilike(f'%{user_type}%')
-        )
+            extract('month', models.Counter.date) <= end_month)
 
     if start_year and end_year:
         query = query.filter(
             extract('year', models.Counter.date) >= start_year,
-            extract('year', models.Counter.date) <= end_year,
-            models.Counter.location_id.ilike(f'%{user_type}%')
-        )
+            extract('year', models.Counter.date) <= end_year)
+
     # Add conditions for other parameters
     # Apply limit and offset to the query
     query = query.offset(offset).limit(limit)
@@ -84,18 +74,39 @@ async def get_counts(
     if not counts:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'No data found')
 
+    if get_all:
+        return counts
+
+    # If a single user was requested by ID, return just that user
+    if _id:
+        if len(counts) == 1:
+            return counts[0]
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'Count with id: {_id} not found!')
+
     return counts
 
 
-@router.post('/', status_code=status.HTTP_201_CREATED, response_model=schemas.CountResponse)
+@router.post('/create-counts/', status_code=status.HTTP_201_CREATED, response_model=schemas.CountResponse)
 async def create_count(counts: schemas.CreateCount, db: Session = Depends(get_db),
-                       current_user: str = Depends(oauth2.get_current_user)):
+                       current_user: str = Depends(oauth2.get_current_user),
+                       # user_access: None = Depends(oauth2.has_permission("create_count"))
+                       ):
     try:
         new_count = models.Counter(**counts.dict())
         db.add(new_count)
         db.commit()
         db.refresh(new_count)
 
+        date_time = await utils.format_date_time(str(new_count.created_at))
+
+        await manager.broadcast(json.dumps(
+            {
+                "type": "notification",
+                "user_id": current_user.user_id,
+                "data": date_time,
+                "note": "New count data submitted to the database, please check data for descriptions and more details"
+            }
+        ))
         return new_count
     except Exception as e:
         db.rollback()  # Rollback changes in case of exception
@@ -105,32 +116,54 @@ async def create_count(counts: schemas.CreateCount, db: Session = Depends(get_db
 
 
 # this api route update the counts already submitted to the database
-@router.put("/", response_model=schemas.CountResponse)
+@router.patch("/update-counts/", response_model=schemas.CountResponse)
 async def update_count(count_id: str, counts: schemas.UpdateCount, db: Session = Depends(get_db),
-                       current_user: str = Depends(oauth2.get_current_user)):
-
+                       current_user: str = Depends(oauth2.get_current_user),
+                       user_access: None = Depends(oauth2.has_permission("update_count"))):
     role = await utils.create_admin_access_id(current_user)
 
     if not role:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access!")
 
     count_query = db.query(models.Counter).filter(models.Counter.id == count_id,
+                                                  models.Counter.is_deleted == False,
                                                   models.Counter.location_id.ilike(f"%{role}%"))
 
     record = count_query.first()
 
     if record is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User with id: {count_id} does not exist")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"Count with id: {count_id} does not exist")
 
-    count_query.update(counts.dict())
+    if record.is_deleted:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Record not found!")
+
+    # Update the record with new data, and set the operation and last_modify fields
+    updated_data = counts.dict(exclude_unset=True)
+    updated_data["last_modify"] = datetime.utcnow()
+    updated_data["operation"] = "update"
+
+    count_query.update(updated_data)
     db.commit()
+    db.refresh(record)
 
-    return count_query.first()
+    await manager.broadcast(json.dumps(
+        {
+            "type": "notification",
+            "user_id": current_user.user_id,
+            "data": record.location_id
+        }
+    ))
+
+    return record
 
 
-@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/delete-counts/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_count(_id: str, db: Session = Depends(get_db),
-                       current_user: str = Depends(oauth2.get_current_user)):
+                       current_user: str = Depends(oauth2.get_current_user),
+                       user_access: None = Depends(oauth2.has_permission("delete_count"))
+                       ):
 
     role = await utils.create_admin_access_id(current_user)
 
@@ -138,15 +171,21 @@ async def delete_count(_id: str, db: Session = Depends(get_db),
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access!")
 
     count = db.query(models.Counter).filter(models.Counter.id == _id,
-                                            models.Counter.location_id.ilike(f'%{role}%'))
+                                            models.Counter.is_deleted == False,
+                                            models.Counter.location_id.ilike(f'%{role}%')).first()
 
-    if count.first() is None:
+    if count is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Data with id: {_id} does not exist")
 
-    if current_user.role != "Super Admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access!")
+    update_data = schemas.UpdateCount(
+        is_deleted=True,
+        last_modify=datetime.now(),
+        operation="delete"
+    )
 
-    count.delete(synchronize_session=False)
+    # Update the user with the new data
+    for field, value in update_data.dict(exclude_unset=True).items():
+        setattr(count, field, value)
     db.commit()
 
     return {"status": "successful!",
@@ -172,8 +211,8 @@ utility
                 |__attendance.py
                 |__auth.py
                 |__counter.py
+                |__websocket.py
                 |__other py files
                 
-with this structure, how or where can i put the script to suite
 
 """
