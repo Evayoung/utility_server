@@ -278,6 +278,14 @@ def schedule_deactivation(information_id: str):
       "operation": "create",
       "is_deleted": false,
       "created_at": "2024-08-18T15:54:22.213Z"
+    },
+    {
+      "title": "Marriage Announcement",
+      "text": "This is to inform the church that there will be a wedding ceremony between bro John and sister Bisola Saturday 25th September at osere",
+      "last_modify": "2024-08-18T15:54:22.213Z",
+      "operation": "create",
+      "is_deleted": false,
+      "created_at": "2024-08-18T15:54:22.213Z"
     }
   ]
 }
