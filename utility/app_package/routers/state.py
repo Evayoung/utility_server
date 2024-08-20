@@ -63,7 +63,7 @@ async def get_state(
 
 @router.post('/create-state/', status_code=status.HTTP_201_CREATED, response_model=schemas.StateResponse)
 async def create_state(state: schemas.CreateState, db: Session = Depends(get_db),
-                       current_user: str = Depends(oauth2.get_current_user),
+                       # current_user: str = Depends(oauth2.get_current_user),
                        # user_access: None = Depends(oauth2.has_permission("create_state"))
                        ):
     try:
@@ -146,3 +146,18 @@ async def delete_state(state_id: str, db: Session = Depends(get_db),
     return {"status": "successful!",
             "message": f"User with ID: {state_id} deleted successfully!"
             }
+
+
+"""
+{
+  "location_id": "DCL-234-KW-ILR-ILE-001",
+  "location_name": "Living Spring",
+  "church_type": "DLCF",
+  "address": "Lajolo, Ilorin",
+  "associate_cord": "Pastor Ade Alade",
+  "last_modify": "2024-08-14T14:21:05.000Z",
+  "operation": "create",
+  "is_deleted": false,
+  "created_at": "2024-08-14T14:21:05.000Z"
+}
+"""

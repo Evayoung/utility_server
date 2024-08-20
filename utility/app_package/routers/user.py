@@ -15,7 +15,7 @@ router = APIRouter(
 )
 
 
-@router.get("/state_region_data/")
+@router.get("/state_region_data")
 async def get_region_state(db: Session = Depends(get_db),
                            current_user: str = Depends(oauth2.get_current_user)):
     # Extract location_id from the current user
@@ -96,7 +96,7 @@ async def get_user(
         offset: Optional[int] = 0,  # Default offset set to 0
         db: Session = Depends(get_db),
         current_user: models.User = Depends(oauth2.get_current_user),
-        user_access: None = Depends(oauth2.has_permission("read_user")),
+        # user_access: None = Depends(oauth2.has_permission("read_user")),
         location_id: Optional[str] = None,
         name: Optional[str] = None,
         phone: Optional[str] = None,
@@ -107,7 +107,7 @@ async def get_user(
 ):
     # Extract user roles and level to fetch relevant data for the user
     role_id = await utils.create_admin_access_id(current_user)
-
+    print(role_id)
     if not role_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User not recognized!")
 
@@ -245,7 +245,8 @@ async def update_user(user_id: str, update_data: schemas.UpdateUser, db: Session
 @router.post("/assign-roles/")
 def assign_roles_to_user(assign_roles: schemas.AssignRolesToUser,
                          db: Session = Depends(get_db),
-                         user_access: None = Depends(oauth2.has_permission("assign_role"))
+                         # current_user: str = Depends(oauth2.get_current_user),
+                         # user_access: None = Depends(oauth2.has_permission("assign_role"))
                          ):
     user = db.query(models.User).filter_by(id=assign_roles.user_id).first()
     if not user:
@@ -287,30 +288,3 @@ def remove_roles_from_user(user_id: int, role_ids: List[int],
         "user_id": user.id,
         "roles": [r.role_name for r in user.roles]
     }
-
-
-#
-
-"""
-{
-  "location_id": "DCL-234-KW-ILR-ILE-OOO1",
-  "location": "Living Spring lajolo",
-  "church_type": "DLCF",
-  "state_": "Kwara State",
-  "region": "Ilorin Region",
-  "group": "Ilorin East",
-  "name": "Olorundare Micheal",
-  "gender": "Male",
-  "phone": "09029952120",
-  "email": "meshelleva@gmail.com",
-  "address": "Eleshin House, lajolo opp kwarapoly gate, Ilorin",
-  "occupation": "Software Developer",
-  "marital_status": "Single",
-  "status": "active",
-  "unit": "Maintenance",
-  "last_modify": "2024-07-31T06:33:52.692Z",
-  "operation": "create",
-  "is_deleted": false,
-  "created_at": "2024-07-31T06:33:52.692Z"
-}
-"""

@@ -30,9 +30,8 @@ async def get_workers(
         marital_status: Optional[str] = None,
         unit: Optional[str] = None,
 ):
-
     if not location_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Location Id is required")
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Location Id is required")
 
     query = db.query(models.Workers).filter(models.Workers.location_id.ilike(f'%{location_id}%'),
                                             models.Workers.is_deleted == False)
@@ -83,7 +82,7 @@ async def get_workers(
 async def get_attendance(
         _id: Optional[int] = None,
         limit: Optional[int] = 100,  # Default limit set to 100
-        offset: Optional[int] = 0,    # Default offset set to 0
+        offset: Optional[int] = 0,  # Default offset set to 0
         db: Session = Depends(get_db),
         current_user: str = Depends(oauth2.get_current_user),
         program_domain: Optional[str] = None,
@@ -149,38 +148,82 @@ async def get_attendance(
     return attendance
 
 
-@router.post('/create-attendance/', status_code=status.HTTP_201_CREATED, response_model=schemas.AttendanceResponse)
-async def create_attendance(attendance_: schemas.CreateAttendance, db: Session = Depends(get_db),
-                            current_user: str = Depends(oauth2.get_current_user)):
-    try:
-        attendance = models.Attendance(**attendance_.dict())
-        db.add(attendance)
-        db.commit()
-        db.refresh(attendance)
+# @router.post('/create-attendance/', status_code=status.HTTP_201_CREATED, response_model=schemas.AttendanceResponse)
+# async def create_attendance(attendance_: schemas.CreateAttendance, db: Session = Depends(get_db),
+#                             current_user: str = Depends(oauth2.get_current_user)):
+#     try:
+#         attendance = models.Attendance(**attendance_.dict())
+#         db.add(attendance)
+#         db.commit()
+#         db.refresh(attendance)
+#
+#         date_time = await utils.format_date_time(str(attendance.created_at))
+#
+#         await manager.broadcast(json.dumps(
+#             {
+#                 "type": "notification",
+#                 "user_id": current_user.user_id,
+#                 "data": date_time,
+#                 "note": "New attendance submitted to the database"
+#             }
+#         ))
+#
+#         return attendance
+#     except Exception as e:
+#         db.rollback()
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                             detail="Attendance could not be created.")
 
-        date_time = await utils.format_date_time(str(attendance.created_at))
+"""@app.post("/upload_records/")
+async def upload_records(records: List[Record], db: Session):
+    try:
+        # Process the batch of records
+        for record in records:
+            # Save each record to the database
+            db.add(record)
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+"""
+
+
+@router.post('/create-attendance/', status_code=status.HTTP_201_CREATED)
+async def batch_create_attendance(attendance_batch: List[schemas.CreateAttendance],
+                                  db: Session = Depends(get_db),
+                                  current_user: str = Depends(oauth2.get_current_user)):
+    try:
+        # print(attendance_batch)
+        for attendance_data in attendance_batch:
+            attendance = models.Attendance(**attendance_data.dict())
+            db.add(attendance)
+        db.commit()
+
+        date_time = await utils.format_date_time(str(datetime.utcnow()))
 
         await manager.broadcast(json.dumps(
             {
                 "type": "notification",
                 "user_id": current_user.user_id,
                 "data": date_time,
-                "note": "New attendance submitted to the database"
+                "note": "Batch attendance submitted to the database"
             }
         ))
 
-        return attendance
+        return {"detail": "Batch attendance successfully created"}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail="Attendance could not be created.")
+                            detail="Batch attendance could not be created.")
 
 
 @router.delete("/delete-attendance/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_attendance(_id: str, db: Session = Depends(get_db),
                             current_user: str = Depends(oauth2.get_current_user)):
-
     role = await utils.create_admin_access_id(current_user)
+
+
 
     if not role:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access!")

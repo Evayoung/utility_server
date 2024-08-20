@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from typing import Optional, Union, List
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, RootModel
 
 
 # ############################################# THE ROLE SCHEMAS ###############################################
@@ -224,6 +224,26 @@ class WorkerResponse(BaseModel):
 
 
 # ############################################# THE USER SCHEMAS ######################################################
+class RecoveryQuestionSetup(BaseModel):
+    user_id: str
+    question: str
+    answer: str
+
+
+class PasswordResetRequest(BaseModel):
+    user_id: str
+    answer: str
+
+
+class PasswordResetResponse(BaseModel):
+    token: str
+
+
+class PasswordResetComplete(BaseModel):
+    token: str
+    new_password: str
+
+
 class UserCreate(BaseModel):
     """ *** Schemas that validate the create user form *** """
 
@@ -280,6 +300,7 @@ class UserResponse(BaseModel):
 
 
 class AssignRolesToUser(BaseModel):
+    """ To assign role """
     user_id: int
     role_ids: List[int]
 
@@ -510,7 +531,8 @@ class UpdateRecord(BaseModel):
 # ############################################# THE GROUP SCHEMAS #############################################
 class CreateGroups(BaseModel):
     """ *** Schemas to create new group *** """
-    group_id: str
+
+    region_id: str
     group_name: str
     group_head: str
     group_pastor: str
@@ -526,6 +548,7 @@ class CreateGroups(BaseModel):
 class GroupsResponse(BaseModel):
     """ *** Schemas that used to return the group data *** """
 
+    region_id: str
     group_id: str
     group_name: str
     group_head: str
@@ -557,7 +580,7 @@ class UpdateGroups(BaseModel):
 class CreateLocations(BaseModel):
     """ *** Schemas to create new location *** """
 
-    location_id: str
+    group_id: str
     location_name: str
     church_type: Optional[str] = "DLBC"
     address: str
@@ -573,6 +596,8 @@ class CreateLocations(BaseModel):
 
 class LocationResponse(BaseModel):
     """ *** Schemas to return the location data *** """
+
+    group_id: str
     location_id: str
     location_name: str
     church_type: str
@@ -606,7 +631,7 @@ class UpdateLocations(BaseModel):
 class CreateRegions(BaseModel):
     """ *** Schemas to create new region *** """
 
-    region_id: str
+    state_id: str
     region_name: str
     region_head: str
     regional_pastor: str
@@ -622,6 +647,7 @@ class CreateRegions(BaseModel):
 class RegionResponse(BaseModel):
     """ *** Schemas to return the region data *** """
 
+    state_id: str
     region_id: str
     region_name: str
     region_head: str
@@ -815,6 +841,11 @@ class UpdateAttendance(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class BatchCreateAttendance(RootModel[List[CreateAttendance]]):
+    """ *** Schema to handle batch creation of attendance records *** """
+    pass
 
 
 # ############################################# THE TITHE AND OFFERING SCHEMAS #######################################
@@ -1336,9 +1367,12 @@ class CreateInformation(BaseModel):
     trets_date: date
     sws_topic: str
     sts_study: str
-    adult_hcf: str
-    youth_hcf: str
-    children_hcf: str
+    adult_hcf_lesson: str
+    youth_hcf_lesson: str
+    children_hcf_lesson: str
+    adult_hcf_volume: str
+    youth_hcf_volume: str
+    children_hcf_volume: str
     sws_bible_reading: str
     mbs_bible_reading: str
     is_active: bool
@@ -1362,9 +1396,12 @@ class InformationResponse(BaseModel):
     trets_date: date
     sws_topic: str
     sts_study: str
-    adult_hcf: str
-    youth_hcf: str
-    children_hcf: str
+    adult_hcf_lesson: str
+    youth_hcf_lesson: str
+    children_hcf_lesson: str
+    adult_hcf_volume: str
+    youth_hcf_volume: str
+    children_hcf_volume: str
     sws_bible_reading: str
     mbs_bible_reading: str
     is_active: bool
@@ -1387,9 +1424,12 @@ class UpdateInformation(BaseModel):
     trets_date: Optional[date] = None
     sws_topic: Optional[str] = None
     sts_study: Optional[str] = None
-    adult_hcf: Optional[str] = None
-    youth_hcf: Optional[str] = None
-    children_hcf: Optional[str] = None
+    adult_hcf_lesson: Optional[str] = None
+    youth_hcf_lesson: Optional[str] = None
+    children_hcf_lesson: Optional[str] = None
+    adult_hcf_volume: Optional[str] = None
+    youth_hcf_volume: Optional[str] = None
+    children_hcf_volume: Optional[str] = None
     sws_bible_reading: Optional[str] = None
     mbs_bible_reading: Optional[str] = None
     is_active: Optional[bool] = None

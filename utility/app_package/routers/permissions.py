@@ -16,7 +16,7 @@ router = APIRouter(
 
 @router.post("/create-permission/", status_code=status.HTTP_201_CREATED, response_model=schemas.PermissionResponse)
 async def create_permission(permission: schemas.CreatePermission, db: Session = Depends(get_db),
-                            user_assess: dict = Depends(oauth2.has_permission("create_permission"))
+                            # user_assess: dict = Depends(oauth2.has_permission("create_permission"))
                             ):
     try:
         db_permission = db.query(models.Permission).filter(

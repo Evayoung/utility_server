@@ -10,7 +10,6 @@ role_permissions = Table(
     Column('permission_id', Integer, ForeignKey('permissions.id'), primary_key=True)
 )
 
-
 # this defines the user to role relationships
 user_roles = Table(
     'user_roles', Base.metadata,
@@ -81,7 +80,7 @@ class Workers(Base):
     group = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False)
     gender = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
+    phone = Column(String, nullable=False, unique=True, index=True)
     email = Column(String, nullable=False, unique=True)
     address = Column(String, nullable=True)
     occupation = Column(String, nullable=True)
@@ -102,9 +101,9 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
     location_id = Column(String, nullable=False, index=True)
-    user_id = Column(String, ForeignKey("workers.user_id"), nullable=False, index=True)
+    user_id = Column(String, nullable=False, unique=True, index=True)
     name = Column(String, nullable=False)
-    phone = Column(String, nullable=False, unique=True)
+    phone = Column(String, ForeignKey("workers.phone"), nullable=False, unique=True)
     email = Column(String, nullable=False, unique=True)
     password = Column(String, nullable=False)
     is_active = Column(Boolean, nullable=True, index=True)
@@ -115,6 +114,24 @@ class User(Base):
 
     workers = relationship('Workers', back_populates='users')
     roles = relationship("Role", secondary=user_roles, back_populates="users")
+    password_reset_tokens = relationship("PasswordResetToken", back_populates="users")
+
+
+class PasswordResetToken(Base):
+    """ *** THE PASSWORD RESET & TOKEN DATABASE SCHEMAS *** """
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
+    user_id = Column(String, ForeignKey("users.user_id"), nullable=False, unique=True)
+    token = Column(String, nullable=False, unique=True)
+    expiration = Column(TIMESTAMP(timezone=True), nullable=False)
+    recovery_question = Column(String, nullable=True)
+    recovery_answer = Column(String, nullable=True)  # Store hashed answer
+    is_used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    users = relationship("User", back_populates="password_reset_tokens")
 
 
 class Counter(Base):
@@ -219,6 +236,8 @@ class States(Base):
     is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
+    region = relationship("Region", back_populates="states")
+
 
 class Region(Base):
     """ *** THIS MODEL CREATE THE VARIOUS REGIONS IN THE STATE DATABASE *** """
@@ -226,7 +245,8 @@ class Region(Base):
     __tablename__: str = "region"
 
     id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
-    region_id = Column(String, nullable=False, unique=True)  # Custom string primary key
+    state_id = Column(String, ForeignKey("states.state_id"), nullable=False, index=True)
+    region_id = Column(String, nullable=False, unique=True, index=True)
     region_name = Column(String, nullable=False, index=True)
     region_head = Column(String, nullable=False)
     regional_pastor = Column(String, nullable=False)
@@ -236,6 +256,8 @@ class Region(Base):
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     information = relationship("Information", back_populates="region")
+    states = relationship("States", back_populates="region")
+    groups = relationship("Group", back_populates="region")
 
 
 class Group(Base):
@@ -244,6 +266,7 @@ class Group(Base):
     __tablename__: str = "group"
 
     id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
+    region_id = Column(String, ForeignKey("region.region_id"), nullable=False, index=True)
     group_id = Column(String, nullable=False, unique=True)  # Custom string primary key
     group_name = Column(String, nullable=False, index=True)
     group_head = Column(String, nullable=False)
@@ -253,6 +276,9 @@ class Group(Base):
     is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
+    region = relationship("Region", back_populates="groups")
+    location = relationship("Location", back_populates="groups")
+
 
 class Location(Base):
     """ *** THIS MODEL CREATE THE INDIVIDUAL CHURCH LOCATION DATABASE *** """
@@ -260,6 +286,7 @@ class Location(Base):
     __tablename__: str = "location"
 
     id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
+    group_id = Column(String, ForeignKey("group.group_id"), nullable=False, index=True)
     location_id = Column(String, nullable=False, unique=True)  # Custom string primary key system
     location_name = Column(String, nullable=False, index=True)
     church_type = Column(String, nullable=False, index=True)  # Campus, Adult, Youth (DLCF, DLBC, DLSO)
@@ -270,6 +297,7 @@ class Location(Base):
     is_deleted = Column(Boolean, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
+    groups = relationship("Group", back_populates="location")
     fellowships = relationship("Fellowship", back_populates="location")
     fellowship_members = relationship("FellowshipMembers", back_populates="location")
     fellowship_attendance = relationship("FellowshipAttendance", back_populates="location")
@@ -457,9 +485,12 @@ class Information(Base):
     trets_date = Column(Date, nullable=True)
     sws_topic = Column(String, nullable=True)
     sts_study = Column(String, nullable=True)
-    adult_hcf = Column(String, nullable=True)
-    youth_hcf = Column(String, nullable=True)
-    children_hcf = Column(String, nullable=True)
+    adult_hcf_lesson = Column(String, nullable=True)
+    youth_hcf_lesson = Column(String, nullable=True)
+    children_hcf_lesson = Column(String, nullable=True)
+    adult_hcf_volume = Column(String, nullable=True)
+    youth_hcf_volume = Column(String, nullable=True)
+    children_hcf_volume = Column(String, nullable=True)
     sws_bible_reading = Column(String, nullable=True)
     mbs_bible_reading = Column(String, nullable=True)
     is_active = Column(Boolean, nullable=False)

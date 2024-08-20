@@ -1,3 +1,5 @@
+import random
+import string
 from datetime import datetime
 from typing import List, Union, Optional
 
@@ -67,11 +69,14 @@ async def get_groups(
 
 @router.post('/create-group/', status_code=status.HTTP_201_CREATED, response_model=schemas.GroupsResponse)
 async def create_group(group: schemas.CreateGroups, db: Session = Depends(get_db),
-                       user_access: None = Depends(oauth2.has_permission("create_group")),
-                       current_user: str = Depends(oauth2.get_current_user)
+                       # user_access: None = Depends(oauth2.has_permission("create_group")),
+                       # current_user: str = Depends(oauth2.get_current_user)
                        ):
     try:
-        new_group = models.Group(**group.dict())
+        # generate region_id
+        group_id = await generate_group_id(group.group_name, group.region_id, db)
+
+        new_group = models.Group(**group.dict(), group_id=group_id)
         db.add(new_group)
         db.commit()
         db.refresh(new_group)
@@ -148,3 +153,28 @@ async def delete_group(group_id: str, db: Session = Depends(get_db),
     return {"status": "successful!",
             "message": f"User with ID: {group_id} deleted successfully!"
             }
+
+
+async def generate_group_id(group_name: str, region_id: str, db: Session) -> str:
+    def generate_id():
+        # Clean the region_name by removing any non-alphanumeric characters and spaces
+        cleaned_name = ''.join(c for c in group_name if c.isalnum())
+
+        # Select 3 random letters from the cleaned name or from the alphabet
+        if len(cleaned_name) >= 3:
+            unique_id = ''.join(random.choices(cleaned_name, k=3)).upper()
+        else:
+            unique_id = ''.join(random.choices(string.ascii_uppercase, k=3))
+
+        return unique_id
+
+    # Ensure uniqueness of the generated region_id
+    while True:
+        group_id = f"{region_id}-{generate_id()}"
+
+        # Check if the region_id already exists in the database
+        existing_group = db.query(models.Group).filter(models.Group.group_id == group_id).first()
+        if not existing_group:
+            break
+
+    return group_id

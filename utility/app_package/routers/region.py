@@ -1,3 +1,5 @@
+import random
+import string
 from datetime import datetime
 from typing import List, Union, Optional
 
@@ -65,11 +67,13 @@ async def get_regions(
 @router.post('/create-region/', status_code=status.HTTP_201_CREATED, response_model=schemas.RegionResponse)
 async def create_region(region: schemas.CreateRegions, db: Session = Depends(get_db),
                         # user_access: None = Depends(oauth2.has_permission("create_region")),
-                        current_user: str = Depends(oauth2.get_current_user)
+                        # current_user: str = Depends(oauth2.get_current_user)
                         ):
-
     try:
-        new_region = models.Region(**region.dict())
+        # generate region_id
+        region_id = await generate_region_id(region.region_name, region.state_id, db)
+
+        new_region = models.Region(**region.dict(), region_id=region_id)
         db.add(new_region)
         db.commit()
         db.refresh(new_region)
@@ -86,7 +90,6 @@ async def update_regions(region_id: str, region_: schemas.UpdateRegions, db: Ses
                          current_user: str = Depends(oauth2.get_current_user),
                          user_access: None = Depends(oauth2.has_permission("update_region"))
                          ):
-
     role = await utils.create_admin_access_id(current_user)
 
     if not role:
@@ -122,7 +125,6 @@ async def delete_region(region_id: str, db: Session = Depends(get_db),
                         current_user: str = Depends(oauth2.get_current_user),
                         user_access: None = Depends(oauth2.has_permission("read_region"))
                         ):
-
     role = await utils.create_admin_access_id(current_user)
 
     if not role:
@@ -149,3 +151,28 @@ async def delete_region(region_id: str, db: Session = Depends(get_db),
     return {"status": "successful!",
             "message": f"Region record with ID: {region_id} deleted successfully!"
             }
+
+
+async def generate_region_id(region_name: str, state_id: str, db: Session) -> str:
+    def generate_id():
+        # Clean the region_name by removing any non-alphanumeric characters and spaces
+        cleaned_name = ''.join(c for c in region_name if c.isalnum())
+
+        # Select 3 random letters from the cleaned name or from the alphabet
+        if len(cleaned_name) >= 3:
+            unique_id = ''.join(random.choices(cleaned_name, k=3)).upper()
+        else:
+            unique_id = ''.join(random.choices(string.ascii_uppercase, k=3))
+
+        return unique_id
+
+    # Ensure uniqueness of the generated region_id
+    while True:
+        region_id = f"{state_id}-{generate_id()}"
+
+        # Check if the region_id already exists in the database
+        existing_region = db.query(models.Region).filter(models.Region.region_id == region_id).first()
+        if not existing_region:
+            break
+
+    return region_id

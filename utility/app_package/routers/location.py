@@ -1,7 +1,9 @@
+import random
 from datetime import datetime
 from typing import List, Union, Optional
 
 from fastapi import status, HTTPException, Depends, APIRouter
+from sqlalchemy import func, Integer
 from sqlalchemy.orm import Session
 
 from .. import schemas, utils, models, oauth2
@@ -61,7 +63,10 @@ async def create_locations(location: schemas.CreateLocations, db: Session = Depe
                            user_access: None = Depends(oauth2.has_permission("create_location"))
                            ):
     try:
-        new_location = models.Location(**location.dict())
+        # generate location_id
+        location_id = await generate_serial_id(location.group_id, db)
+
+        new_location = models.Location(**location.dict(), location_id=location_id)
         db.add(new_location)
         db.commit()
         db.refresh(new_location)
@@ -114,7 +119,6 @@ async def delete_locations(locations_id: str, db: Session = Depends(get_db),
                            current_user: str = Depends(oauth2.get_current_user),
                            user_access: None = Depends(oauth2.has_permission("delete_location"))
                            ):
-
     role = await utils.create_admin_access_id(current_user)
 
     if not role:
@@ -143,3 +147,45 @@ async def delete_locations(locations_id: str, db: Session = Depends(get_db),
     return {"status": "successful!",
             "message": f"User with ID: {locations_id} deleted successfully!"
             }
+
+
+async def generate_serial_id(group_id: str, db: Session) -> str:
+    def generate_next_serial():
+        try:
+            # Fetch the latest record based on group_id
+            query = db.query(models.Location).filter(models.Location.location_id.like(f"{group_id}-%"))
+
+            # Fetch the latest record with the highest serial number
+            latest_record = query.order_by(
+                func.cast(
+                    func.substring(models.Location.location_id, len(group_id) + 2), Integer
+                ).desc()
+            ).first()
+
+            if latest_record:
+                # Extract the current highest serial number and increment it
+                last_serial = int(latest_record.location_id.split('-')[-1])  # Extract serial part directly
+                next_serial = last_serial + 1
+            else:
+                # Start with 001 if no records exist
+                next_serial = 1
+
+            # Format the serial number to be 3 digits long
+            return f"{next_serial:03}"
+        except Exception:
+            raise
+
+    while True:
+        try:
+            serial_number = generate_next_serial()
+            location_id = f"{group_id}-{serial_number}"
+
+            # Check if the location_id already exists in the database
+            existing_location = db.query(models.Location).filter(models.Location.location_id == location_id).first()
+            if not existing_location:
+                break
+        except Exception:
+            raise
+
+    return location_id
+
